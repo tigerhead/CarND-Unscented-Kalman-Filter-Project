@@ -31,10 +31,10 @@ UKF::UKF() {
         0, 0, 0, 0, 0.6;
 
   // Process noise standard deviation longitudinal acceleration in m/s^2
-  std_a_ = 0.85;
+  std_a_ = 1.0;
 
   // Process noise standard deviation yaw acceleration in rad/s^2
-  std_yawdd_ = 0.85;
+  std_yawdd_ = 1.0;
 
   // Laser measurement noise standard deviation position1 in m
   std_laspx_ = 0.15;
@@ -126,7 +126,14 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
             float ro_dot = meas_package.raw_measurements_[2];
            // cout << "initialing position RADAR Measurement" << endl;
 
-            x_ << r * cos(phi), r * sin(phi), ro_dot,  phi,  0;
+            if( fabs(r)  < 0.001 && fabs(phi) < 0.001 && ro_dot < 0.001) // If measurement is close to zero, set it a small non-zero number.
+            {
+               r = 0.001;
+               phi = 0.001;
+               ro_dot = 0.001;
+            }
+
+            x_ << r * cos(phi), r * sin(phi), ro_dot,  phi,  0.01;
             cout << "initial position RADAR Measurement: x=" << x_[0]  << " y=" << x_[1] << endl;
         }
         else if (meas_package.sensor_type_ == MeasurementPackage::LASER) {
@@ -136,13 +143,22 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
            //cout << "initialing position LIDAR Measurement" << endl;
 
            // px, py, v, yaw, yaw rate
-           x_ <<  meas_package.raw_measurements_[0], meas_package.raw_measurements_[1], 1, 0.1, 0;
+
+            double px = meas_package.raw_measurements_[0];
+            double py = meas_package.raw_measurements_[1];
+
+            if( fabs(px)  < 0.001 && fabs(py) < 0.001 ) // If measurement is close to zero, set it a small non-zero number.
+            {
+               px = 0.001;
+               py = 0.001;
+            }
+
+           x_ <<  px, py, 0.01, 0.01, 0.01;
 
 
            cout << "initial position LIDAR Measurement: x=" << x_[0]  << " y=" <<  x_[1] << endl;
         }
 
-       GenerateSigmaPoints();
 
         // set weights
         double weight_0 =  aug_lambda_/( aug_lambda_+n_aug_);
@@ -169,7 +185,12 @@ void UKF::ProcessMeasurement(MeasurementPackage meas_package) {
           /*****************************************************************************
            *  Prediction
            ****************************************************************************/
-
+          while (dt > 0.4)
+            {
+                double step = 0.2;
+                Prediction(step);
+                dt -= step;
+            }
 
           Prediction(dt);
           cout << "Done Prediction" << endl;
@@ -481,52 +502,6 @@ void UKF::UpdateRadar(MeasurementPackage meas_package) {
 
 }
 
-/**
- * @brief UKF::GenerateSigmaPoints
- * @
- */
-void UKF::GenerateSigmaPoints() {
-
-    //create augmented mean vector
-   VectorXd x_aug = VectorXd(n_aug_);
-
-   //create augmented state covariance
-   MatrixXd P_aug = MatrixXd(n_aug_, n_aug_);
-
-   //create sigma point matrix
-   MatrixXd Xsig_aug = MatrixXd(n_aug_, 2 * n_aug_ + 1);
-
- /*******************************************************************************
-  * Student part begin
-  ******************************************************************************/
-
-   //create augmented mean state
-   x_aug.head(5) = x_;
-   x_aug(5) = 0;
-   x_aug(6) = 0;
-
-   //create augmented covariance matrix
-   P_aug.fill(0.0);
-   P_aug.topLeftCorner(n_x_,n_x_) = P_;
-   P_aug(5,5) = std_a_*std_a_;
-   P_aug(6,6) = std_yawdd_*std_yawdd_;
-
-   //create square root matrix
-   MatrixXd L = P_aug.llt().matrixL();
-
-   //create augmented sigma points
-   Xsig_aug.col(0)  = x_aug;
-   for (int i = 0; i< n_aug_; i++)
-   {
-     VectorXd temp = sqrt(aug_lambda_+n_aug_) * L.col(i);
-     Xsig_aug.col(i+1)       = x_aug + temp;
-     Xsig_aug.col(i+1+n_aug_) = x_aug - temp;
-   }
-
-   //write result
-   Xsig_pred_ = Xsig_aug.topLeftCorner(n_x_,2*n_aug_ + 1);
-
-}
 
 void UKF::AugmentedSigmaPoints(MatrixXd* Xsig_out) {
 
@@ -626,21 +601,10 @@ void UKF::SigmaPointPrediction(MatrixXd Xsig_aug, double delta_t) {
 
 double UKF:: NormalizeYaw(double cal_yaw){
     //cout << "Input yaw: " << cal_yaw << endl;
-    /*double nor_yaw = 0.;
-    double pi_times = cal_yaw/2./M_PI;
-    int int_pi_times = int(pi_times);
-    double residual = pi_times - int_pi_times;
-    cout << "Residual: " << residual << endl;
-    if(cal_yaw > M_PI){
 
-      nor_yaw = (residual -1) * 2. * M_PI;
-    }
-    if(cal_yaw < -M_PI){
-     nor_yaw = (residual + 1) *2. *M_PI;
-    }
-    cout << "Normalized yaw: " << cal_yaw << endl; */
 
-    double nor_yaw = cal_yaw - round(cal_yaw / (2.0d * M_PI)) * (2.0d * M_PI);
+    //double nor_yaw = cal_yaw - round(cal_yaw / (2.0d * M_PI)) * (2.0d * M_PI);
+    double nor_yaw =  fmod( cal_yaw, M_PI);
     return nor_yaw;
 
 }
